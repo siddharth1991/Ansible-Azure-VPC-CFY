@@ -1,0 +1,166 @@
+tosca_definitions_version: cloudify_dsl_1_4
+
+description: >
+  This blueprint creates an AWS infrastructure environment using Ansible.
+  libselinux-python/libselinux-python3 on the manager VM is prerequisite.
+
+imports:
+  - https://raw.githubusercontent.com/cloudify-community/cloudify-catalog/6.4.0-build/tabs/utilities/eaas/custom_types.yaml
+  - https://cloudify.co/spec/cloudify/6.4.0/types.yaml
+  - plugin:cloudify-ansible-plugin
+  - plugin:cloudify-utilities-plugin?version= >=1.22.1
+
+inputs:
+  agent_key_name: #name of the RSA key
+    type: string
+    default: agent_key
+
+  region_name:  #where will the resources be deployed
+    type: string
+    default: EastUS
+    display_label: Azure region name
+    constraints:
+      - valid_values:
+          - BrazilSouth
+          - FranceCentral
+          - SouthAfricaNorth
+          - AustraliaEast
+          - CanadaCentral
+          - GermanyWestCentral
+          - CentralIndia
+          - CentralUS
+          - NorthEurope
+          - JapanEast
+          - EastUS
+          - NorwayEast
+          - KoreaCentral
+          - EastUS2
+          - UKSouth
+          - SoutheastAsia
+          - SouthCentralUS
+          - WestEurope
+          - EastAsia
+          - USGovVirginia
+          - SwedenCentral
+          - ChinaNorth3
+          - WestUS2
+          - WestUS3
+
+node_templates:
+
+  #we creating the prefix for the deployment resources i.e. infrastructure
+  infra_prefix:
+    type: eaas.nodes.UniquePrefixGenerator
+    properties:
+      predefined_value: ""
+
+  agent_key:  #this will create an RSA key that will be used by the cloudify agent to authenticate to the nodes it manages
+    type: cloudify.nodes.keys.RSAKey
+    properties:
+      resource_config:
+        key_name: { get_input: agent_key_name } #name of the RSA key
+        openssh_format: true
+      use_secret_store: true
+      use_secrets_if_exist: true
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        create:
+          implementation: keys.cloudify_ssh_key.operations.create
+          inputs:
+            store_private_key_material: true  #whether the private key should be stored in the secret store.
+
+  # Use ansible Executor node type in order to execute resources/ansible/playbook.yaml during install workflow.
+  # See https://github.com/cloudify-cosmo/cloudify-ansible-plugin/blob/master/plugin.yaml for more information about the properties provided.
+  install-infra-playbook:
+    type: cloudify.nodes.ansible.Executor
+    properties:
+      playbook_path: playbooks/install_vpc.yaml #path to the ansible playbook that will be executed.
+      sources: playbooks/inventory.yaml #defines the list of hosts that ansible playbook will be executed on.
+      ansible_become: true
+      run_data:
+        resource_group_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_rg" ]}
+        vpc_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_vpc" ]}
+        subnet_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_subnet" ]}
+        location: { get_input: region_name }
+        network_interface_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_nic" ]}
+        admin_key_public: { get_attribute: [ agent_key, public_key_export ] }
+        nsg_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_nsg" ]}
+        vm_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudifyVM" ]}
+      ansible_env_vars: &env_vars #environment variables set before execution of ansible playbook. The below allow ansible playbook to access Azure resources using the specified credentials.
+        AZURE_SUBSCRIPTION_ID: { get_secret: azure_subscription_id }
+        AZURE_CLIENT_ID: { get_secret: azure_client_id }
+        AZURE_SECRET: { get_secret: azure_client_secret }
+        AZURE_TENANT: { get_secret: azure_tenant_id }
+      extra_packages: &extra_packages
+        - packaging
+        - requests[security]
+        - xmltodict
+        - msal==1.23.0
+        - azure-cli-core==2.34.0
+        - azure-common==1.1.11
+        - azure-identity==1.7.0
+        - azure-mgmt-authorization==2.0.0
+        - azure-mgmt-apimanagement==3.0.0
+        - azure-mgmt-batch==16.2.0
+        - azure-mgmt-cdn==11.0.0
+        - azure-mgmt-compute==26.1.0
+        - azure-mgmt-containerinstance==9.0.0
+        - azure-mgmt-core==1.3.0
+        - azure-mgmt-containerregistry==9.1.0
+        - azure-mgmt-containerservice==20.0.0
+        - azure-mgmt-datalake-store==1.0.0
+        - azure-mgmt-datafactory==2.0.0
+        - azure-mgmt-dns==8.0.0
+        - azure-mgmt-marketplaceordering==1.1.0
+        - azure-mgmt-monitor==3.0.0
+        - azure-mgmt-managedservices==6.0.0
+        - azure-mgmt-managementgroups==1.0.0
+        - azure-mgmt-network==19.1.0
+        - azure-mgmt-nspkg==2.0.0
+        - azure-mgmt-privatedns==1.0.0
+        - azure-mgmt-redis==13.0.0
+        - azure-mgmt-resource==21.1.0
+        - azure-mgmt-rdbms==10.0.0
+        - azure-mgmt-search==8.0.0
+        - azure-mgmt-servicebus==7.1.0
+        - azure-mgmt-sql==3.0.1
+        - azure-mgmt-storage==19.0.0
+        - azure-mgmt-trafficmanager==1.0.0b1
+        - azure-mgmt-web==6.1.0
+        - azure-nspkg==2.0.0
+        - azure-storage-blob==12.11.0
+        - msrest==0.7.1
+        - msrestazure==0.6.4
+        - azure-keyvault==4.2.0
+        - azure-mgmt-keyvault==10.0.0
+        - azure-graphrbac==0.61.1
+        - azure-mgmt-cosmosdb==6.4.0
+        - azure-mgmt-hdinsight==9.0.0
+        - azure-mgmt-devtestlabs==9.0.0
+        - azure-mgmt-loganalytics==12.0.0
+        - azure-mgmt-automation==1.0.0
+        - azure-mgmt-iothub==2.2.0
+        - azure-mgmt-recoveryservices==2.0.0
+        - azure-mgmt-recoveryservicesbackup==3.0.0
+        - azure-mgmt-notificationhubs==7.0.0
+        - azure-mgmt-eventhub==10.1.0
+      galaxy_collections: &galaxy_collections
+        - azure.azcollection
+
+  # Override stop lifecycle interface for executing resources/ansible/uninstall-playbook.yaml playbook during uninstall workflow.
+  # Execute ansible.cloudify_ansible.tasks.run task in order to do so.
+  uninstall-infra-playbook:
+    type: cloudify.nodes.Root
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        stop:
+          implementation: ansible.cloudify_ansible.tasks.run
+          inputs:
+            playbook_path: playbooks/uninstall_vpc.yaml
+            start_at_task: "Deleting resource group"
+            sources: playbooks/inventory.yaml
+            run_data:
+              resource_group_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_rg" ]}
+            ansible_env_vars: *env_vars
+            extra_packages: *extra_packages
+            galaxy_collections: *galaxy_collections
