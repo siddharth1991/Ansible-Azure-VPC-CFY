@@ -15,6 +15,18 @@ inputs:
     type: string
     default: agent_key
 
+  playbook_source_path:
+    type: string
+    default: ''
+
+  playbook_path:
+    type: string
+    default: playbooks/install_vpc.yaml
+
+  sources_path:
+    type: string
+    default: playbooks/inventory.yaml
+
   region_name:  #where will the resources be deployed
     type: string
     default: EastUS
@@ -74,8 +86,9 @@ node_templates:
   install-infra-playbook:
     type: cloudify.nodes.ansible.Executor
     properties:
-      playbook_path: playbooks/install_vpc.yaml #path to the ansible playbook that will be executed.
-      sources: playbooks/inventory.yaml #defines the list of hosts that ansible playbook will be executed on.
+      playbook_source_path: { get_input: playbook_source_path }
+      playbook_path: { get_input: playbook_path } #path to the ansible playbook that will be executed.
+      sources: { get_input: sources_path } #defines the list of hosts that ansible playbook will be executed on.
       ansible_become: true
       run_data:
         resource_group_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_rg" ]}
@@ -156,7 +169,8 @@ node_templates:
         stop:
           implementation: ansible.cloudify_ansible.tasks.run
           inputs:
-            playbook_path: playbooks/uninstall_vpc.yaml
+            playbook_source_path: { get_input: playbook_source_path }
+            playbook_path: { get_input: playbook_path }
             start_at_task: "Deleting resource group"
             sources: playbooks/inventory.yaml
             run_data:
@@ -164,3 +178,21 @@ node_templates:
             ansible_env_vars: *env_vars
             extra_packages: *extra_packages
             galaxy_collections: *galaxy_collections
+
+capabilities:
+
+  resource_group_name:
+    description: Created resource group name.
+    value: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_rg" ]}
+
+  vpc_name:
+    description: Created VPC name.
+    value: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_vpc" ]}
+
+  subnet_name:
+    description: Created subnet name.
+    value: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_subnet" ]}
+
+  network_interface_name:
+    description: Created subnet name.
+    value: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_nic" ] }
