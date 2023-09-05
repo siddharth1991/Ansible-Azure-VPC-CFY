@@ -1,7 +1,7 @@
 tosca_definitions_version: cloudify_dsl_1_4
 
 description: >
-  This blueprint creates an AWS infrastructure environment using Ansible.
+  This blueprint creates an Azure infrastructure environment using Ansible.
   libselinux-python/libselinux-python3 on the manager VM is prerequisite.
 
 imports:
@@ -14,10 +14,6 @@ inputs:
   agent_key_name: #name of the RSA key
     type: string
     default: agent_key
-
-  playbook_source_path:
-    type: string
-    default: ''
 
   playbook_path:
     type: string
@@ -81,15 +77,14 @@ node_templates:
           inputs:
             store_private_key_material: true  #whether the private key should be stored in the secret store.
 
-  # Use ansible Executor node type in order to execute resources/ansible/playbook.yaml during install workflow.
+  # Use ansible Executor node type in order to execute playbooks/install_vpc.yaml during install workflow.
   # See https://github.com/cloudify-cosmo/cloudify-ansible-plugin/blob/master/plugin.yaml for more information about the properties provided.
   install-infra-playbook:
     type: cloudify.nodes.ansible.Executor
     properties:
-      playbook_source_path: { get_input: playbook_source_path }
       playbook_path: { get_input: playbook_path } #path to the ansible playbook that will be executed.
       sources: { get_input: sources_path } #defines the list of hosts that ansible playbook will be executed on.
-      ansible_become: true
+      ansible_become: true  #run the ansible playbook as the root user
       run_data:
         resource_group_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_rg" ]}
         vpc_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_vpc" ]}
@@ -160,7 +155,7 @@ node_templates:
       galaxy_collections: &galaxy_collections
         - azure.azcollection
 
-  # Override stop lifecycle interface for executing resources/ansible/uninstall-playbook.yaml playbook during uninstall workflow.
+  # Override stop lifecycle interface for executing playbook/uninstall_vpc.yaml playbook during uninstall workflow.
   # Execute ansible.cloudify_ansible.tasks.run task in order to do so.
   uninstall-infra-playbook:
     type: cloudify.nodes.Root
@@ -169,10 +164,9 @@ node_templates:
         stop:
           implementation: ansible.cloudify_ansible.tasks.run
           inputs:
-            playbook_source_path: { get_input: playbook_source_path }
             playbook_path: { get_input: playbook_path }
             start_at_task: "Deleting resource group"
-            sources: playbooks/inventory.yaml
+            sources: { get_input: sources_path }
             run_data:
               resource_group_name: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_rg" ]}
             ansible_env_vars: *env_vars
@@ -194,5 +188,5 @@ capabilities:
     value: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_subnet" ]}
 
   network_interface_name:
-    description: Created subnet name.
+    description: Created network interface name.
     value: { concat: [ get_attribute: [ infra_prefix, value ], "cloudify_nic" ] }
